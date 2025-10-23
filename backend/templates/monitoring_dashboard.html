@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🔧 HoraBadge - Monitoring Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        h1 {
+            color: white;
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+        }
+        
+        .refresh-btn {
+            background: white;
+            color: #667eea;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 25px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            display: block;
+            margin: 0 auto 30px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            transition: transform 0.2s;
+        }
+        
+        .refresh-btn:hover {
+            transform: scale(1.05);
+        }
+        
+        .status-badge {
+            display: inline-block;
+            padding: 8px 20px;
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 18px;
+            margin-bottom: 20px;
+        }
+        
+        .status-healthy {
+            background: #10b981;
+            color: white;
+        }
+        
+        .status-degraded {
+            background: #f59e0b;
+            color: white;
+        }
+        
+        .status-unhealthy {
+            background: #ef4444;
+            color: white;
+        }
+        
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .card {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            transition: transform 0.2s;
+        }
+        
+        .card:hover {
+            transform: translateY(-5px);
+        }
+        
+        .card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #f3f4f6;
+        }
+        
+        .card-title {
+            font-size: 1.3em;
+            font-weight: bold;
+            color: #1f2937;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .card-icon {
+            font-size: 1.5em;
+        }
+        
+        .metric {
+            margin: 15px 0;
+        }
+        
+        .metric-label {
+            color: #6b7280;
+            font-size: 0.9em;
+            margin-bottom: 5px;
+        }
+        
+        .metric-value {
+            font-size: 1.8em;
+            font-weight: bold;
+            color: #1f2937;
+        }
+        
+        .progress-bar {
+            width: 100%;
+            height: 25px;
+            background: #e5e7eb;
+            border-radius: 12px;
+            overflow: hidden;
+            margin-top: 8px;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #10b981, #059669);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            font-size: 0.85em;
+            transition: width 0.3s ease;
+        }
+        
+        .progress-warning {
+            background: linear-gradient(90deg, #f59e0b, #d97706);
+        }
+        
+        .progress-danger {
+            background: linear-gradient(90deg, #ef4444, #dc2626);
+        }
+        
+        .info-list {
+            list-style: none;
+        }
+        
+        .info-list li {
+            padding: 10px 0;
+            border-bottom: 1px solid #f3f4f6;
+            display: flex;
+            justify-content: space-between;
+        }
+        
+        .info-list li:last-child {
+            border-bottom: none;
+        }
+        
+        .info-label {
+            color: #6b7280;
+        }
+        
+        .info-value {
+            font-weight: bold;
+            color: #1f2937;
+        }
+        
+        .timestamp {
+            text-align: center;
+            color: white;
+            margin-top: 20px;
+            font-size: 0.9em;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 50px;
+            color: white;
+            font-size: 1.2em;
+        }
+        
+        .error {
+            background: #fee2e2;
+            color: #991b1b;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+            text-align: center;
+        }
+        
+        .fade-in {
+            animation: fadeIn 0.5s ease-in;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .endpoint-item {
+            padding: 12px;
+            margin: 8px 0;
+            background: #f9fafb;
+            border-radius: 8px;
+            border-left: 4px solid #10b981;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .endpoint-error {
+            border-left-color: #ef4444;
+        }
+        
+        .endpoint-name {
+            font-weight: 600;
+            color: #1f2937;
+        }
+        
+        .endpoint-url {
+            color: #6b7280;
+            font-size: 0.85em;
+            font-family: monospace;
+        }
+        
+        .endpoint-status {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .status-code {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.85em;
+            font-weight: bold;
+        }
+        
+        .status-200, .status-302 {
+            background: #d1fae5;
+            color: #065f46;
+        }
+        
+        .status-403 {
+            background: #fed7aa;
+            color: #92400e;
+        }
+        
+        .status-500 {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+        
+        .response-time {
+            color: #6b7280;
+            font-size: 0.85em;
+        }
+        
+        .routes-list {
+            max-height: 300px;
+            overflow-y: auto;
+            background: #f9fafb;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 10px;
+        }
+        
+        .route-item {
+            padding: 6px 0;
+            font-family: monospace;
+            font-size: 0.85em;
+            color: #1f2937;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        
+        .route-item:last-child {
+            border-bottom: none;
+        }
+        
+        .updating {
+            opacity: 0.7;
+            transition: opacity 0.3s;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 HoraBadge - Monitoring Dashboard</h1>
+        
+        <button class="refresh-btn" onclick="loadHealth()">🔄 Rafraîchir</button>
+        
+        <div id="status-container"></div>
+        <div id="content"></div>
+        <div class="timestamp" id="timestamp"></div>
+    </div>
+
+    <script>
+        let isFirstLoad = true;
+        
+        async function loadHealth() {
+            const content = document.getElementById('content');
+            const statusContainer = document.getElementById('status-container');
+            
+            if (isFirstLoad) {
+                content.innerHTML = '<div class="loading">⏳ Chargement initial...</div>';
+            } else {
+                // Mise à jour fluide : ajouter classe updating
+                content.classList.add('updating');
+            }
+            
+            try {
+                const response = await fetch('/api/health/');
+                const data = await response.json();
+                
+                // Status global
+                const statusClass = data.status === 'healthy' ? 'status-healthy' : 'status-degraded';
+                const statusEmoji = data.status === 'healthy' ? '✅' : '⚠️';
+                statusContainer.innerHTML = `
+                    <div style="text-align: center;">
+                        <span class="status-badge ${statusClass}">
+                            ${statusEmoji} Système ${data.status === 'healthy' ? 'Opérationnel' : 'Dégradé'}
+                        </span>
+                    </div>
+                `;
+                
+                // Composants
+                const components = data.components;
+                
+                const html = `
+                    <div class="grid fade-in">
+                        ${createDatabaseCard(components.database)}
+                        ${createModelsCard(components.models)}
+                        ${createRoutesCard(components.routes)}
+                        ${createEndpointsCard(components.endpoints)}
+                        ${createCacheCard(components.cache)}
+                    </div>
+                `;
+                
+                content.innerHTML = html;
+                content.classList.remove('updating');
+                
+                // Timestamp
+                const now = new Date(data.timestamp);
+                document.getElementById('timestamp').innerHTML = `
+                    ⏰ Dernière mise à jour : ${now.toLocaleTimeString('fr-FR')} • Auto-refresh toutes les 15s
+                `;
+                
+                isFirstLoad = false;
+                
+            } catch (error) {
+                content.innerHTML = `
+                    <div class="error fade-in">
+                        ❌ Erreur : ${error.message}
+                    </div>
+                `;
+                content.classList.remove('updating');
+            }
+        }
+        
+        function createDatabaseCard(db) {
+            const statusEmoji = db.status === 'healthy' ? '✅' : '❌';
+            return `
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">
+                            <span class="card-icon">🗄️</span>
+                            Base de Données
+                        </div>
+                        <span>${statusEmoji}</span>
+                    </div>
+                    <ul class="info-list">
+                        <li>
+                            <span class="info-label">Type</span>
+                            <span class="info-value">${db.type || 'N/A'}</span>
+                        </li>
+                        <li>
+                            <span class="info-label">Tables</span>
+                            <span class="info-value">${db.tables_count || 0}</span>
+                        </li>
+                        <li>
+                            <span class="info-label">Utilisateurs</span>
+                            <span class="info-value">${db.users_count || 0}</span>
+                        </li>
+                    </ul>
+                    <p style="margin-top: 15px; color: #6b7280; font-size: 0.9em;">
+                        ${db.message}
+                    </p>
+                </div>
+            `;
+        }
+        
+        function createEndpointsCard(endpoints) {
+            const statusEmoji = endpoints.status === 'healthy' ? '✅' : '⚠️';
+            
+            const endpointsList = endpoints.endpoints.map(ep => {
+                const errorClass = ep.status === 'error' ? 'endpoint-error' : '';
+                const statusCode = ep.status_code || 'N/A';
+                const statusClass = statusCode < 400 ? 'status-200' : statusCode < 500 ? 'status-403' : 'status-500';
+                
+                return `
+                    <div class="endpoint-item ${errorClass}">
+                        <div>
+                            <div class="endpoint-name">${ep.name}</div>
+                            <div class="endpoint-url">${ep.url}</div>
+                        </div>
+                        <div class="endpoint-status">
+                            ${ep.response_time_ms ? `<span class="response-time">${ep.response_time_ms}ms</span>` : ''}
+                            <span class="status-code ${statusClass}">${statusCode}</span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+            
+            return `
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">
+                            <span class="card-icon">🔌</span>
+                            Tests des Endpoints
+                        </div>
+                        <span>${statusEmoji}</span>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-label">Résultats</div>
+                        <div class="metric-value" style="color: ${endpoints.total_failed === 0 ? '#10b981' : '#f59e0b'}">
+                            ${endpoints.total_ok}/${endpoints.total_tested}
+                        </div>
+                    </div>
+                    <div style="margin-top: 15px;">
+                        ${endpointsList}
+                    </div>
+                    <p style="margin-top: 15px; color: #6b7280; font-size: 0.9em;">
+                        ${endpoints.message}
+                    </p>
+                </div>
+            `;
+        }
+        
+        function createModelsCard(models) {
+            const statusEmoji = models.status === 'healthy' ? '✅' : '❌';
+            const stats = models.models || {};
+            return `
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">
+                            <span class="card-icon">📊</span>
+                            Modèles Django
+                        </div>
+                        <span>${statusEmoji}</span>
+                    </div>
+                    <ul class="info-list">
+                        <li>
+                            <span class="info-label">Utilisateurs</span>
+                            <span class="info-value">${stats.users || 0}</span>
+                        </li>
+                        <li>
+                            <span class="info-label">Équipes</span>
+                            <span class="info-value">${stats.teams || 0}</span>
+                        </li>
+                        <li>
+                            <span class="info-label">Pointages</span>
+                            <span class="info-value">${stats.attendances || 0}</span>
+                        </li>
+                        <li>
+                            <span class="info-label">Sessions</span>
+                            <span class="info-value">${stats.work_sessions || 0}</span>
+                        </li>
+                        <li>
+                            <span class="info-label">Notifications</span>
+                            <span class="info-value">${stats.notifications || 0}</span>
+                        </li>
+                    </ul>
+                </div>
+            `;
+        }
+        
+        function createRoutesCard(routes) {
+            const statusEmoji = routes.status === 'healthy' ? '✅' : '⚠️';
+            
+            const apiRoutes = routes.routes_list?.api || [];
+            const routesHtml = apiRoutes.slice(0, 15).map(route => 
+                `<div class="route-item">${route}</div>`
+            ).join('');
+            
+            return `
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">
+                            <span class="card-icon">🛣️</span>
+                            Configuration Routes
+                        </div>
+                        <span>${statusEmoji}</span>
+                    </div>
+                    <ul class="info-list">
+                        <li>
+                            <span class="info-label">Total Routes</span>
+                            <span class="info-value">${routes.total_routes || 0}</span>
+                        </li>
+                        <li>
+                            <span class="info-label">Routes API</span>
+                            <span class="info-value">${routes.api_routes || 0}</span>
+                        </li>
+                        <li>
+                            <span class="info-label">Routes Admin</span>
+                            <span class="info-value">${routes.admin_routes || 0}</span>
+                        </li>
+                        <li>
+                            <span class="info-label">Routes Critiques</span>
+                            <span class="info-value">${routes.critical_routes_found || 0}/6</span>
+                        </li>
+                    </ul>
+                    ${routesHtml ? `
+                        <div style="margin-top: 15px;">
+                            <div class="metric-label">Routes API (échantillon)</div>
+                            <div class="routes-list">${routesHtml}</div>
+                        </div>
+                    ` : ''}
+                    <p style="margin-top: 15px; color: #6b7280; font-size: 0.9em;">
+                        ${routes.message}
+                    </p>
+                </div>
+            `;
+        }
+        
+        function createCacheCard(cache) {
+            const statusEmoji = cache.status === 'healthy' ? '✅' : '⚠️';
+            return `
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">
+                            <span class="card-icon">⚡</span>
+                            Cache
+                        </div>
+                        <span>${statusEmoji}</span>
+                    </div>
+                    <p style="margin-top: 15px; color: #6b7280; font-size: 0.9em;">
+                        ${cache.message}
+                    </p>
+                </div>
+            `;
+        }
+        
+        // Auto-refresh toutes les 15 secondes (fluide)
+        setInterval(loadHealth, 15000);
+        
+        // Charger au démarrage
+        loadHealth();
+    </script>
+</body>
+</html>

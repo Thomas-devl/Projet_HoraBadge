@@ -15,8 +15,27 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.contrib import admin
-from django.urls import path
+from django.urls import path, include
+from django.conf import settings
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    
+    # Health Check & Monitoring
+    path('monitoring/', lambda request: __import__('django.shortcuts').shortcuts.render(request, 'monitoring_dashboard.html'), name='monitoring-dashboard'),
+    path('api/health/', include([
+        path('', lambda r: __import__('apps.monitoring').monitoring.HealthCheckView.as_view()(r), name='health-check'),
+        path('quick/', lambda r: __import__('apps.monitoring').monitoring.QuickHealthView.as_view()(r), name='health-quick'),
+        path('stats/', lambda r: __import__('apps.monitoring').monitoring.DetailedStatsView.as_view()(r), name='health-stats'),
+    ])),
+    
+    # API Routes
+    path('api/', include('apps.users.urls')),  # /users, /teams, /users/{id}/clocks
+    path('api/attendance/', include('apps.attendance.urls')),  # /attendance/*, /clocks, /reports
 ]
+
+# Django Debug Toolbar (development only)
+if settings.DEBUG:
+    urlpatterns += [
+        path('__debug__/', include('debug_toolbar.urls')),
+    ]

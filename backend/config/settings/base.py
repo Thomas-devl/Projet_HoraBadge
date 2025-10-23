@@ -10,6 +10,10 @@ import os
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 
+# Custom User Model
+AUTH_USER_MODEL = 'users.User'
+
+
 # Application definition
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -22,9 +26,14 @@ INSTALLED_APPS = [
     # Third party apps
     'rest_framework',
     'corsheaders',
+    'health_check',
+    'health_check.db',
+    'health_check.cache',
+    'health_check.storage',
     
     # Local apps
-    # Add your custom apps here
+    'apps.users',
+    'apps.attendance',
 ]
 
 MIDDLEWARE = [
