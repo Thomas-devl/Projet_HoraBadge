@@ -3,6 +3,7 @@ Development settings for HoraBadge project.
 """
 
 from .base import *
+import os
 
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = 'django-insecure-dev-key-change-in-production'
@@ -12,12 +13,20 @@ DEBUG = True
 
 ALLOWED_HOSTS = ['localhost', '127.0.0.1', '0.0.0.0']
 
+# Django Debug Toolbar
+INSTALLED_APPS += ['debug_toolbar']
+MIDDLEWARE += ['debug_toolbar.middleware.DebugToolbarMiddleware']
+INTERNAL_IPS = ['127.0.0.1', 'localhost']
 
-# Database
+# Database - PostgreSQL
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': os.environ.get('DB_NAME', 'horabadge_dev'),
+        'USER': os.environ.get('DB_USER', 'horabadge_user'),
+        'PASSWORD': os.environ.get('DB_PASSWORD', 'horabadge2024'),
+        'HOST': os.environ.get('DB_HOST', 'localhost'),
+        'PORT': os.environ.get('DB_PORT', '5432'),
     }
 }
 
@@ -33,9 +42,9 @@ CORS_ALLOWED_ORIGINS = [
 CORS_ALLOW_ALL_ORIGINS = True
 
 # Additional development settings
-INSTALLED_APPS += [
-    'django_extensions',  # Useful dev tools
-]
+# INSTALLED_APPS += [
+#     'django_extensions',  # Useful dev tools (install with pip)
+# ]
 
 # Development-specific REST Framework settings
 REST_FRAMEWORK['DEFAULT_RENDERER_CLASSES'] = [
