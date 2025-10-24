@@ -15,23 +15,24 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
-COPY ../../backend/requirements.txt /app/
+COPY requirements.txt /app/
 RUN pip install --upgrade pip && pip install -r requirements.txt
 
-# Copy project
-COPY ../../backend /app/
+# Install netcat for waiting postgres
+RUN apt-get update && apt-get install -y netcat-openbsd && rm -rf /var/lib/apt/lists/*
+
+# Copy entrypoint script
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 # Create necessary directories
 RUN mkdir -p /app/staticfiles /app/media /app/logs
 
-# Collect static files
-RUN python manage.py collectstatic --noinput || true
-
-# Run migrations
-RUN python manage.py migrate --noinput || true
-
 # Expose port
 EXPOSE 8000
 
-# Run the application
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "config.wsgi:application"]
+# Set entrypoint
+ENTRYPOINT ["/entrypoint.sh"]
+
+# Run the application in development mode
+CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]

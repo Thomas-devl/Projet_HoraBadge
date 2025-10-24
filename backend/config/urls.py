@@ -30,6 +30,7 @@ urlpatterns = [
     ])),
     
     # API Routes
+    path('api/auth/', include('apps.users.auth_urls')),  # Authentication routes
     path('api/', include('apps.users.urls')),  # /users, /teams, /users/{id}/clocks
     path('api/attendance/', include('apps.attendance.urls')),  # /attendance/*, /clocks, /reports
 ]
