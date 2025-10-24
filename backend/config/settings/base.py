@@ -25,6 +25,7 @@ INSTALLED_APPS = [
     
     # Third party apps
     'rest_framework',
+    'rest_framework.authtoken',  # Token authentication
     'corsheaders',
     'health_check',
     'health_check.db',
