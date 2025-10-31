@@ -7,7 +7,10 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.authtoken.models import Token
 from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth import get_user_model
 from apps.users.serializers import UserSerializer
+
+User = get_user_model()
 
 
 @api_view(['POST'])
@@ -17,19 +20,26 @@ def login_view(request):
     Connecte un utilisateur avec username/email et password
     Retourne un token d'authentification
     """
-    username = request.data.get('username')
+    username_or_email = request.data.get('username')
     password = request.data.get('password')
     
-    if not username or not password:
+    if not username_or_email or not password:
         return Response(
-            {'detail': 'Username et password sont requis'},
+            {'detail': 'Username/email et password sont requis'},
             status=status.HTTP_400_BAD_REQUEST
         )
     
-    # Authentifier l'utilisateur
-    user = authenticate(request, username=username, password=password)
+    # Chercher l'utilisateur par username ou email
+    try:
+        user = User.objects.get(username=username_or_email)
+    except User.DoesNotExist:
+        try:
+            user = User.objects.get(email=username_or_email)
+        except User.DoesNotExist:
+            user = None
     
-    if user is not None:
+    # Vérifier le mot de passe
+    if user is not None and user.check_password(password):
         # Connecter l'utilisateur
         login(request, user)
         

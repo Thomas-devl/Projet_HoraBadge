@@ -2,7 +2,10 @@
   <div class="dashboard admin-dashboard">
     <header class="dashboard-header">
       <div class="header-content">
-        <h1>Tableau de bord - Administrateur</h1>
+        <div class="header-left">
+          <img src="@/assets/images/logo.svg" alt="HoraBadge Logo" class="header-logo" />
+          <h1>Tableau de bord - Administrateur</h1>
+        </div>
         <div class="user-info">
           <span class="user-name">{{ user.full_name }}</span>
           <span class="user-role">Administrateur</span>
@@ -72,12 +75,47 @@
                   {{ usr.is_active ? 'Actif' : 'Inactif' }}
                 </span>
               </td>
-              <td>
-                <button @click="editUser(usr)" class="btn-icon" title="Modifier">
-                  ✏️
+              <td class="actions-cell">
+                <button @click="editUser(usr)" class="btn-action btn-edit" title="Modifier">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                  </svg>
                 </button>
-                <button @click="deleteUser(usr)" class="btn-icon" title="Supprimer">
-                  🗑️
+                <button 
+                  v-if="usr.is_active" 
+                  @click="deactivateUser(usr)" 
+                  class="btn-action btn-pause" 
+                  title="Désactiver"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="10" y1="15" x2="10" y2="9"></line>
+                    <line x1="14" y1="15" x2="14" y2="9"></line>
+                  </svg>
+                </button>
+                <button 
+                  v-else 
+                  @click="activateUser(usr)" 
+                  class="btn-action btn-play" 
+                  title="Réactiver"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <polygon points="10 8 16 12 10 16 10 8"></polygon>
+                  </svg>
+                </button>
+                <button 
+                  @click="deleteUserPermanently(usr)" 
+                  class="btn-action btn-delete" 
+                  title="Supprimer définitivement"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="3 6 5 6 21 6"></polyline>
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                    <line x1="10" y1="11" x2="10" y2="17"></line>
+                    <line x1="14" y1="11" x2="14" y2="17"></line>
+                  </svg>
                 </button>
               </td>
             </tr>
@@ -321,14 +359,16 @@
             <label for="team_members">Membres de l'équipe</label>
             <select id="team_members" v-model="teamForm.members" multiple size="6">
               <option 
-                v-for="usr in users" 
+                v-for="usr in availableMembers" 
                 :key="usr.id" 
                 :value="usr.id"
+                :disabled="!isMemberSelectable(usr)"
+                :style="isMemberSelectable(usr) ? '' : 'color: #999; font-style: italic;'"
               >
-                {{ usr.full_name }} - {{ getRoleLabel(usr.role) }}
+                {{ getMemberLabel(usr) }} - {{ getRoleLabel(usr.role) }}
               </option>
             </select>
-            <small class="form-hint">Maintenez Ctrl/Cmd pour sélectionner plusieurs membres</small>
+            <small class="form-hint">Les employés ne peuvent être que dans une seule équipe. Les managers peuvent être dans plusieurs équipes.</small>
           </div>
 
           <!-- Message d'erreur -->
@@ -409,6 +449,71 @@ export default {
     const availableManagers = computed(() => {
       return users.value.filter(u => u.role === 'manager' || u.role === 'admin')
     })
+
+    // Computed pour les membres disponibles (sans les admins)
+    const availableMembers = computed(() => {
+      const members = users.value.filter(u => u.role !== 'admin')
+      
+      // Trier pour afficher d'abord les utilisateurs libres
+      return members.sort((a, b) => {
+        const aSelectable = isMemberSelectable(a)
+        const bSelectable = isMemberSelectable(b)
+        
+        // Les utilisateurs sélectionnables en premier
+        if (aSelectable && !bSelectable) return -1
+        if (!aSelectable && bSelectable) return 1
+        
+        // Sinon, tri alphabétique par nom
+        return a.full_name.localeCompare(b.full_name)
+      })
+    })
+
+    // Fonction pour obtenir l'équipe d'un employé
+    const getEmployeeTeam = (userId) => {
+      // Si on est en train d'éditer une équipe, ne pas compter l'équipe actuelle
+      const currentTeamId = editingTeam.value?.id
+      
+      // Chercher si cet utilisateur est déjà membre d'une autre équipe
+      const team = teams.value.find(t => 
+        t.id !== currentTeamId && 
+        t.members && 
+        t.members.some(m => {
+          const memberId = typeof m === 'object' ? m.id : m
+          return memberId === userId
+        })
+      )
+      
+      return team
+    }
+
+    // Fonction pour vérifier si un membre peut être sélectionné
+    const isMemberSelectable = (user) => {
+      // Les managers et admins peuvent toujours être sélectionnés (admins déjà filtrés)
+      if (user.role === 'manager') return true
+      
+      // Pour les employés, vérifier s'ils sont déjà dans une équipe
+      if (user.role === 'employee') {
+        const existingTeam = getEmployeeTeam(user.id)
+        return !existingTeam
+      }
+      
+      return true
+    }
+
+    // Fonction pour obtenir le label d'un membre
+    const getMemberLabel = (user) => {
+      const baseLabel = user.full_name
+      
+      // Si c'est un employé, vérifier s'il est déjà dans une équipe
+      if (user.role === 'employee') {
+        const existingTeam = getEmployeeTeam(user.id)
+        if (existingTeam) {
+          return `${baseLabel} (Déjà dans : ${existingTeam.name})`
+        }
+      }
+      
+      return baseLabel
+    }
 
     const fetchUsers = async () => {
       loadingUsers.value = true
@@ -557,15 +662,41 @@ export default {
       }
     }
 
-    const deleteUser = async (usr) => {
-      if (confirm(`Êtes-vous sûr de vouloir supprimer ${usr.full_name} ?`)) {
+    const deactivateUser = async (usr) => {
+      if (confirm(`Êtes-vous sûr de vouloir désactiver ${usr.full_name} ?\n\nL'utilisateur ne pourra plus se connecter mais ses données seront conservées.`)) {
         try {
           await api.delete(`/users/${usr.id}/`)
           await fetchUsers()
-          alert('Utilisateur supprimé')
+          alert('Utilisateur désactivé avec succès')
         } catch (error) {
-          console.error('Erreur lors de la suppression:', error)
-          alert('Erreur lors de la suppression')
+          console.error('Erreur lors de la désactivation:', error)
+          alert('Erreur lors de la désactivation')
+        }
+      }
+    }
+
+    const activateUser = async (usr) => {
+      try {
+        await api.put(`/users/${usr.id}/`, { ...usr, is_active: true })
+        await fetchUsers()
+        alert('Utilisateur réactivé avec succès')
+      } catch (error) {
+        console.error('Erreur lors de la réactivation:', error)
+        alert('Erreur lors de la réactivation')
+      }
+    }
+
+    const deleteUserPermanently = async (usr) => {
+      if (confirm(`⚠️ ATTENTION : Supprimer définitivement ${usr.full_name} ?\n\nCette action est IRRÉVERSIBLE !\nToutes les données de cet utilisateur seront perdues.`)) {
+        if (confirm(`Confirmez-vous vraiment la suppression définitive de ${usr.full_name} ?`)) {
+          try {
+            await api.delete(`/users/${usr.id}/?permanent=true`)
+            await fetchUsers()
+            alert('Utilisateur supprimé définitivement')
+          } catch (error) {
+            console.error('Erreur lors de la suppression:', error)
+            alert('Erreur lors de la suppression définitive')
+          }
         }
       }
     }
@@ -676,6 +807,7 @@ export default {
       presentToday,
       totalClocksToday,
       availableManagers,
+      availableMembers,
       showUserModal,
       showTeamModal,
       editingUser,
@@ -688,8 +820,13 @@ export default {
       teamFormError,
       getRoleLabel,
       getManagerName,
+      getEmployeeTeam,
+      isMemberSelectable,
+      getMemberLabel,
       editUser,
-      deleteUser,
+      deactivateUser,
+      activateUser,
+      deleteUserPermanently,
       editTeam,
       deleteTeam,
       saveUser,
@@ -711,7 +848,7 @@ export default {
 .dashboard-header {
   background: var(--white);
   box-shadow: var(--shadow-sm);
-  padding: var(--spacing-lg) var(--spacing-xl);
+  padding: var(--spacing-sm) var(--spacing-xl);
   margin-bottom: var(--spacing-lg);
 }
 
@@ -721,6 +858,18 @@ export default {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+}
+
+.header-logo {
+  height: 80px;
+  width: auto;
+  object-fit: contain;
 }
 
 .header-content h1 {
@@ -816,19 +965,74 @@ export default {
   font-weight: 600;
 }
 
-.btn-icon {
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-size: 18px;
-  padding: var(--spacing-xs);
-  margin: 0 var(--spacing-xs);
-  opacity: 0.6;
-  transition: opacity var(--transition-normal);
+.actions-cell {
+  white-space: nowrap;
 }
 
-.btn-icon:hover {
-  opacity: 1;
+/* Boutons d'action professionnels */
+.btn-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 1px solid transparent;
+  cursor: pointer;
+  padding: 6px;
+  margin: 0 4px;
+  border-radius: var(--radius-sm);
+  transition: all 0.2s ease;
+  width: 32px;
+  height: 32px;
+}
+
+.btn-action svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 2;
+}
+
+/* Bouton Modifier (Edit) */
+.btn-edit {
+  color: #1890ff;
+}
+
+.btn-edit:hover {
+  background: #e6f7ff;
+  border-color: #91d5ff;
+  color: #096dd9;
+}
+
+/* Bouton Pause (Désactiver) */
+.btn-pause {
+  color: #fa8c16;
+}
+
+.btn-pause:hover {
+  background: #fff7e6;
+  border-color: #ffd591;
+  color: #d46b08;
+}
+
+/* Bouton Play (Réactiver) */
+.btn-play {
+  color: #52c41a;
+}
+
+.btn-play:hover {
+  background: #f6ffed;
+  border-color: #b7eb8f;
+  color: #389e0d;
+}
+
+/* Bouton Supprimer (Delete) */
+.btn-delete {
+  color: #ff4d4f;
+}
+
+.btn-delete:hover {
+  background: #fff1f0;
+  border-color: #ffa39e;
+  color: #cf1322;
 }
 
 .badge {
@@ -1158,10 +1362,24 @@ export default {
 }
 
 @media (max-width: 768px) {
+  .dashboard-header {
+    padding: var(--spacing-xs) var(--spacing-md);
+  }
+
   .header-content {
     flex-direction: column;
-    gap: var(--spacing-md);
+    gap: var(--spacing-sm);
     text-align: center;
+  }
+
+  .header-left {
+    flex-direction: column;
+    text-align: center;
+    gap: var(--spacing-xs);
+  }
+
+  .header-logo {
+    height: 35px;
   }
 
   .section-header {
