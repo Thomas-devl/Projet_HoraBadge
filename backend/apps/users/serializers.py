@@ -119,6 +119,47 @@ class TeamSerializer(serializers.ModelSerializer):
     def get_member_usernames(self, obj):
         """Retourne la liste des usernames des membres"""
         return [member.username for member in obj.members.all()]
+    
+    def validate_members(self, value):
+        """
+        Valider que :
+        - Les membres ne sont pas des administrateurs
+        - Les employés ne sont pas déjà dans une autre équipe
+        """
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
+        
+        # Vérifier qu'il n'y a pas d'admin
+        admin_members = [member for member in value if member.role == 'admin']
+        if admin_members:
+            admin_names = ', '.join([member.username for member in admin_members])
+            raise serializers.ValidationError(
+                f"Les administrateurs ne peuvent pas être membres d'une équipe : {admin_names}"
+            )
+        
+        # Vérifier que les employés ne sont pas déjà dans une autre équipe
+        employees_in_conflict = []
+        for member in value:
+            if member.role == 'employee':
+                # Chercher si cet employé est déjà dans une autre équipe
+                existing_teams = Team.objects.filter(members=member)
+                
+                # Si on est en mode édition, exclure l'équipe actuelle
+                if self.instance:
+                    existing_teams = existing_teams.exclude(id=self.instance.id)
+                
+                if existing_teams.exists():
+                    team_names = ', '.join([team.name for team in existing_teams])
+                    employees_in_conflict.append(
+                        f"{member.username} (déjà dans : {team_names})"
+                    )
+        
+        if employees_in_conflict:
+            raise serializers.ValidationError(
+                f"Les employés suivants sont déjà membres d'une autre équipe : {'; '.join(employees_in_conflict)}"
+            )
+        
+        return value
 
 
 class TeamDetailSerializer(TeamSerializer):

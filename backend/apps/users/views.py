@@ -70,7 +70,7 @@ class UserDetailView(generics.RetrieveUpdateDestroyAPIView):
     GET /users/{id} - Détail d'un utilisateur
     PUT /users/{id} - Modifier un utilisateur (complet)
     PATCH /users/{id} - Modifier un utilisateur (partiel)
-    DELETE /users/{id} - Supprimer un utilisateur
+    DELETE /users/{id} - Supprimer un utilisateur (avec query param ?permanent=true pour suppression définitive)
     """
     queryset = User.objects.all()
     serializer_class = UserSerializer
@@ -83,9 +83,36 @@ class UserDetailView(generics.RetrieveUpdateDestroyAPIView):
         return [IsAuthenticated()]
     
     def perform_destroy(self, instance):
-        """Désactiver au lieu de supprimer"""
-        instance.is_active = False
-        instance.save()
+        """
+        Désactiver par défaut, supprimer définitivement si ?permanent=true
+        """
+        permanent = self.request.query_params.get('permanent', 'false').lower() == 'true'
+        
+        if permanent:
+            # Suppression physique
+            instance.delete()
+        else:
+            # Suppression logique (désactivation)
+            instance.is_active = False
+            instance.save()
+    
+    def destroy(self, request, *args, **kwargs):
+        """Override pour retourner un message personnalisé"""
+        instance = self.get_object()
+        permanent = request.query_params.get('permanent', 'false').lower() == 'true'
+        
+        self.perform_destroy(instance)
+        
+        if permanent:
+            return Response(
+                {'message': 'Utilisateur supprimé définitivement'},
+                status=status.HTTP_204_NO_CONTENT
+            )
+        else:
+            return Response(
+                {'message': 'Utilisateur désactivé'},
+                status=status.HTTP_200_OK
+            )
 
 
 class UserClocksView(APIView):
