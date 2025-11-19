@@ -195,45 +195,39 @@ export default {
     const handleLogin = async () => {
       errorMessage.value = ''
       successMessage.value = ''
-      
       if (!validateForm()) {
         return
       }
-      
       loading.value = true
-      
       try {
         const response = await authService.login(
           loginForm.username,
           loginForm.password
         )
-        
         successMessage.value = 'Connexion réussie ! Redirection...'
-        
-        // Rediriger vers le dashboard après un court délai
-        setTimeout(() => {
-          router.push('/dashboard')
-        }, 1000)
-        
+        // Vérification du rôle avant redirection
+        const user = authService.getCurrentUser()
+        if (!user || !user.role) {
+          errorMessage.value = "Rôle utilisateur non défini."
+          router.push('/')
+          return
+        }
+        // Redirige selon le rôle
+        if (user.role === 'admin') {
+          router.push('/dashboard/admin')
+        } else if (user.role === 'manager') {
+          router.push('/dashboard/manager')
+        } else if (user.role === 'employee') {
+          router.push('/dashboard/employee')
+        } else {
+          errorMessage.value = "Rôle inconnu."
+          router.push('/')
+        }
       } catch (error) {
         console.error('Erreur de connexion:', error)
-        
-        if (error.response) {
-          // Erreur de l'API
-          if (error.response.status === 401) {
-            errorMessage.value = 'Identifiants incorrects. Veuillez réessayer.'
-          } else if (error.response.data && error.response.data.detail) {
-            errorMessage.value = error.response.data.detail
-          } else {
-            errorMessage.value = 'Une erreur est survenue lors de la connexion.'
-          }
-        } else if (error.request) {
-          // Pas de réponse du serveur
-          errorMessage.value = 'Impossible de contacter le serveur. Vérifiez votre connexion.'
-        } else {
-          // Autre erreur
-          errorMessage.value = 'Une erreur inattendue est survenue.'
-        }
+        errorMessage.value = 'Erreur de connexion. Veuillez vérifier vos identifiants ou réessayer plus tard.'
+        // Protection supplémentaire : forcer l'affichage du formulaire login
+        loading.value = false
       } finally {
         loading.value = false
       }

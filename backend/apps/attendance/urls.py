@@ -25,6 +25,11 @@ urlpatterns = [
     # Statistiques
     path('stats/', views.AttendanceStatsView.as_view(), name='attendance-stats'),
     
+    # Anomalies
+    path('anomalies/', views.AttendanceAnomaliesView.as_view(), name='attendance-anomalies'),
+    
+    # Calendrier du mois
+    path('calendar/', views.AttendanceMonthCalendarView.as_view(), name='attendance-calendar'),
     
     # ========== SESSIONS DE TRAVAIL ==========
     path('sessions/', views.WorkSessionListView.as_view(), name='work-session-list'),

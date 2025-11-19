@@ -49,10 +49,10 @@
 
       <!-- Pointages du jour -->
       <section class="card today-clocks">
-        <h2>Pointages d'aujourd'hui</h2>
+        <h2>Pointages d'aujourd'hui (Équipe)</h2>
         <div v-if="loadingClocks" class="loading">Chargement...</div>
-        <div v-else-if="todayClocks.length === 0" class="no-data">
-          Aucun pointage aujourd'hui
+        <div v-else-if="teamTodayClocks.length === 0" class="no-data">
+          Aucun pointage aujourd'hui pour votre équipe
         </div>
         <table v-else class="data-table">
           <thead>
@@ -64,12 +64,12 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="clock in todayClocks" :key="clock.id">
-              <td>{{ clock.user_name }}</td>
+            <tr v-for="clock in teamTodayClocks" :key="clock.id">
+              <td>{{ getUserName(clock) }}</td>
               <td>{{ formatTime(clock.timestamp) }}</td>
               <td>
-                <span :class="['badge', clock.clock_type === 'in' ? 'badge-success' : 'badge-danger']">
-                  {{ clock.clock_type === 'in' ? 'Arrivée' : 'Départ' }}
+                <span :class="['badge', getClockType(clock) === 'in' ? 'badge-success' : 'badge-danger']">
+                  {{ getClockType(clock) === 'in' ? 'Arrivée' : 'Départ' }}
                 </span>
               </td>
               <td>
@@ -119,8 +119,32 @@ export default {
     const loadingTeam = ref(false)
     const loadingClocks = ref(false)
 
+    const teamMemberIds = computed(() => {
+      if (!team.value || !team.value.members) return []
+      // Les membres sont soit des IDs directs, soit des objets
+      const ids = team.value.members.map(m => {
+        // Si c'est un nombre ou une string, c'est l'ID directement
+        if (typeof m === 'number' || typeof m === 'string') return Number(m)
+        // Sinon c'est un objet, extraire l'ID
+        return m.id || m.user_id || m.pk || m.employee_id
+      })
+      return ids.filter(id => id !== undefined && id !== null)
+    })
+
+    const teamTodayClocks = computed(() => {
+      return todayClocks.value.filter(clock => {
+        const clockUserId = clock.user_id || clock.user || clock.employee_id || clock.employee
+        return teamMemberIds.value.includes(clockUserId)
+      })
+    })
+
     const presentToday = computed(() => {
-      const uniqueUsers = new Set(todayClocks.value.map(c => c.user_id))
+      // Filtrer uniquement les pointages "in" (arrivée)
+      const checkIns = teamTodayClocks.value.filter(c => {
+        const type = c.clock_type || c.attendance_type || c.type
+        return type === 'in' || type === 'IN'
+      })
+      const uniqueUsers = new Set(checkIns.map(c => c.user_id || c.user))
       return uniqueUsers.size
     })
 
@@ -130,7 +154,7 @@ export default {
     })
 
     const lateToday = computed(() => {
-      return todayClocks.value.filter(c => isLate(c)).length
+      return teamTodayClocks.value.filter(c => isLate(c)).length
     })
 
     const fetchTeam = async () => {
@@ -139,7 +163,29 @@ export default {
         // Récupérer l'équipe gérée par ce manager
         const response = await api.get('/teams')
         const teams = response.data.results || response.data
-        team.value = teams.find(t => t.manager_id === user.value.id)
+        team.value = teams.find(t => {
+          // Essayer de matcher avec manager_id ou manager
+          return t.manager_id === user.value.id || 
+                 t.manager === user.value.id ||
+                 String(t.manager_id) === String(user.value.id) ||
+                 String(t.manager) === String(user.value.id)
+        })
+        if (team.value) {
+          
+          // Si les membres sont juste des IDs, récupérer leurs infos complètes
+          if (team.value.members && team.value.members.length > 0 && typeof team.value.members[0] === 'number') {
+            try {
+              const usersResponse = await api.get('/users/')
+              const allUsers = usersResponse.data.results || usersResponse.data || []
+              // Remplacer les IDs par les objets utilisateurs complets
+              team.value.members = team.value.members.map(memberId => {
+                return allUsers.find(u => u.id === memberId) || { id: memberId }
+              })
+            } catch (e) {
+              console.error('Erreur lors de la récupération des infos utilisateurs:', e)
+            }
+          }
+        }
       } catch (error) {
         console.error('Erreur lors du chargement de l\'équipe:', error)
       } finally {
@@ -150,17 +196,32 @@ export default {
     const fetchTodayClocks = async () => {
       loadingClocks.value = true
       try {
-        const response = await api.get('/attendance/clocks')
-        const allClocks = response.data.results || response.data
+        // Récupérer TOUS les pointages pour pouvoir filtrer ceux de l'équipe
+        const response = await api.get('/attendance/', {
+          params: {
+            limit: 1000 // Augmenter la limite pour avoir tous les pointages récents
+          }
+        })
         
-        // Filtrer les pointages d'aujourd'hui
+        // Extraire les pointages selon la structure de la réponse
+        let allClocks = []
+        if (Array.isArray(response.data)) {
+          allClocks = response.data
+        } else if (response.data.results) {
+          allClocks = response.data.results
+        } else if (response.data.attendances) {
+          allClocks = response.data.attendances
+        }
+        
+        // Filtrer pour aujourd'hui
         const today = new Date().toDateString()
         todayClocks.value = allClocks.filter(clock => {
-          const clockDate = new Date(clock.timestamp).toDateString()
+          const clockDate = new Date(clock.timestamp || clock.clock_time || clock.date || clock.created_at).toDateString()
           return clockDate === today
         })
       } catch (error) {
         console.error('Erreur lors du chargement des pointages:', error)
+        console.error('Détails:', error.response?.data)
       } finally {
         loadingClocks.value = false
       }
@@ -172,18 +233,43 @@ export default {
     }
 
     const isLate = (clock) => {
-      if (clock.clock_type !== 'in') return false
+      const type = getClockType(clock)
+      if (type !== 'in') return false
       const hour = new Date(clock.timestamp).getHours()
       return hour >= 9 // Considéré en retard après 9h
     }
 
+    const getClockType = (clock) => {
+      const type = clock.clock_type || clock.attendance_type || clock.type || ''
+      return type.toLowerCase()
+    }
+
+    const getUserName = (clock) => {
+      // Essayer différentes propriétés pour le nom
+      if (clock.user_name) return clock.user_name
+      if (clock.user && typeof clock.user === 'object') {
+        return `${clock.user.first_name || ''} ${clock.user.last_name || ''}`.trim()
+      }
+      // Chercher dans les membres de l'équipe
+      if (team.value && team.value.members) {
+        const userId = clock.user_id || clock.user
+        const member = team.value.members.find(m => m.id === userId)
+        if (member) {
+          return `${member.first_name || ''} ${member.last_name || ''}`.trim()
+        }
+      }
+      return 'Inconnu'
+    }
+
     const getStatus = (clock) => {
-      if (clock.clock_type === 'out') return 'Parti'
+      const type = getClockType(clock)
+      if (type === 'out') return 'Parti'
       return isLate(clock) ? 'En retard' : 'À l\'heure'
     }
 
     const getStatusClass = (clock) => {
-      if (clock.clock_type === 'out') return 'badge-info'
+      const type = getClockType(clock)
+      if (type === 'out') return 'badge-info'
       return isLate(clock) ? 'badge-warning' : 'badge-success'
     }
 
@@ -201,12 +287,15 @@ export default {
       user,
       team,
       todayClocks,
+      teamTodayClocks,
       loadingTeam,
       loadingClocks,
       presentToday,
       absentToday,
       lateToday,
       formatTime,
+      getUserName,
+      getClockType,
       getStatus,
       getStatusClass,
       handleLogout

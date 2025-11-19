@@ -9,12 +9,13 @@ import authService from '../services/authService'
 const routes = [
   {
     path: '/',
-    name: 'Home',
-    component: Home
+    name: 'Login',
+    component: Login,
+    meta: { requiresGuest: true }
   },
   {
     path: '/login',
-    name: 'Login',
+    name: 'LoginPage',
     component: Login,
     meta: { requiresGuest: true }
   },
