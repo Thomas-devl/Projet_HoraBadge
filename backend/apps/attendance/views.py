@@ -33,11 +33,27 @@ class AttendanceListCreateView(generics.ListCreateAPIView):
         return AttendanceSerializer
     
     def get_queryset(self):
+        from apps.users.models import Team
+        
         user = self.request.user
         queryset = Attendance.objects.all()
         
-        # Si pas admin, voir seulement ses propres pointages
-        if not user.is_staff:
+        # Admin : voir tous les pointages
+        if user.is_staff:
+            pass
+        # Manager : voir ses pointages + ceux de son équipe
+        elif user.is_manager:
+            # Récupérer les IDs des membres de l'équipe gérée
+            team = Team.objects.filter(manager=user).first()
+            if team:
+                team_member_ids = list(team.members.values_list('id', flat=True))
+                team_member_ids.append(user.id)  # Inclure le manager lui-même
+                queryset = queryset.filter(user__id__in=team_member_ids)
+            else:
+                # Manager sans équipe : voir seulement ses pointages
+                queryset = queryset.filter(user=user)
+        # Employé : voir seulement ses propres pointages
+        else:
             queryset = queryset.filter(user=user)
         
         # Filtres optionnels
@@ -94,11 +110,44 @@ class MyAttendanceTodayView(APIView):
 class QuickCheckInView(APIView):
     """
     POST: Pointage rapide d'entrée
+    Validation: Un seul check-in par jour
     """
     permission_classes = [IsAuthenticated]
     
     def post(self, request):
         try:
+            today = timezone.now().date()
+            
+            # Vérifier s'il existe déjà un check-in aujourd'hui
+            existing_checkin = Attendance.objects.filter(
+                user=request.user,
+                date=today,
+                attendance_type=AttendanceType.CHECK_IN
+            ).exists()
+            
+            if existing_checkin:
+                return Response(
+                    {'error': 'Vous avez déjà pointé votre arrivée aujourd\'hui'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Vérifier s'il y a déjà un check-out (impossible logiquement)
+            existing_checkout = Attendance.objects.filter(
+                user=request.user,
+                date=today,
+                attendance_type=AttendanceType.CHECK_OUT
+            ).exists()
+            
+            if existing_checkout and not Attendance.objects.filter(
+                user=request.user,
+                date=today,
+                attendance_type=AttendanceType.CHECK_IN
+            ).exists():
+                return Response(
+                    {'error': 'Vous avez déjà pointé votre départ aujourd\'hui. Veuillez contacter un administrateur.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
             attendance = Attendance.objects.create(
                 user=request.user,
                 attendance_type=AttendanceType.CHECK_IN,
@@ -116,11 +165,40 @@ class QuickCheckInView(APIView):
 class QuickCheckOutView(APIView):
     """
     POST: Pointage rapide de sortie
+    Validation: Un seul check-out par jour et check-in doit exister
     """
     permission_classes = [IsAuthenticated]
     
     def post(self, request):
         try:
+            today = timezone.now().date()
+            
+            # Vérifier s'il existe un check-in aujourd'hui
+            existing_checkin = Attendance.objects.filter(
+                user=request.user,
+                date=today,
+                attendance_type=AttendanceType.CHECK_IN
+            ).exists()
+            
+            if not existing_checkin:
+                return Response(
+                    {'error': 'Vous devez d\'abord pointer votre arrivée'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Vérifier s'il existe déjà un check-out aujourd'hui
+            existing_checkout = Attendance.objects.filter(
+                user=request.user,
+                date=today,
+                attendance_type=AttendanceType.CHECK_OUT
+            ).exists()
+            
+            if existing_checkout:
+                return Response(
+                    {'error': 'Vous avez déjà pointé votre départ aujourd\'hui'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
             attendance = Attendance.objects.create(
                 user=request.user,
                 attendance_type=AttendanceType.CHECK_OUT,
@@ -477,5 +555,267 @@ class GlobalReportsView(APIView):
             'filters_applied': {
                 'team_id': team_id,
                 'user_id': user_id,
+            }
+        })
+
+
+class AttendanceAnomaliesView(APIView):
+    """
+    GET: Détecte les anomalies de pointage pour l'utilisateur connecté
+    Anomalies détectées:
+    - Pointages sans paire (entrée sans sortie)
+    - Horaires anormaux (très tôt, très tard)
+    - Heures manquantes (jours sans pointage)
+    - Pointages en doublon
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        user = request.user
+        today = timezone.now().date()
+        
+        # Paramètres optionnels
+        start_date = request.query_params.get('start_date')
+        end_date = request.query_params.get('end_date', today.isoformat())
+        
+        if start_date:
+            from datetime import datetime
+            start_date = datetime.fromisoformat(start_date).date()
+        else:
+            start_date = today - timedelta(days=30)
+        
+        # Convertir end_date en objet date
+        if isinstance(end_date, str):
+            from datetime import datetime
+            end_date = datetime.fromisoformat(end_date).date()
+        
+        anomalies = {
+            'unpaired_checkins': [],  # Entrées sans sortie
+            'abnormal_hours': [],  # Horaires anormaux
+            'missing_days': [],  # Jours sans pointage
+            'duplicate_checkins': [],  # Doublon entrées/sorties
+            'total_anomalies': 0
+        }
+        
+        # Récupérer les pointages de la période
+        attendances = Attendance.objects.filter(
+            user=user,
+            date__gte=start_date,
+            date__lte=end_date
+        ).order_by('timestamp')
+        
+        # 1. Vérifier les pointages sans paire
+        daily_records = {}
+        for att in attendances:
+            if att.date not in daily_records:
+                daily_records[att.date] = {'in': [], 'out': []}
+            
+            if att.attendance_type == AttendanceType.CHECK_IN:
+                daily_records[att.date]['in'].append(att)
+            elif att.attendance_type == AttendanceType.CHECK_OUT:
+                daily_records[att.date]['out'].append(att)
+        
+        for date, records in daily_records.items():
+            check_ins = records['in']
+            check_outs = records['out']
+            
+            # Entrées sans sortie correspondante
+            if len(check_ins) > len(check_outs):
+                for check_in in check_ins[len(check_outs):]:
+                    anomalies['unpaired_checkins'].append({
+                        'type': 'Entrée sans sortie',
+                        'date': date.isoformat(),
+                        'timestamp': check_in.timestamp.isoformat(),
+                        'description': f'Pointage d\'entrée à {check_in.timestamp.strftime("%H:%M")} sans sortie correspondante'
+                    })
+            
+            # 2. Vérifier les horaires anormaux
+            for att in check_ins + check_outs:
+                hour = att.timestamp.hour
+                minute = att.timestamp.minute
+                
+                # Entre 5h et 23h considéré comme normal
+                if hour < 5 or hour > 23:
+                    anomalies['abnormal_hours'].append({
+                        'type': 'Horaire anormal',
+                        'date': date.isoformat(),
+                        'timestamp': att.timestamp.isoformat(),
+                        'description': f'Pointage à {att.timestamp.strftime("%H:%M")} (horaire inhabituel)',
+                        'is_critical': hour < 5
+                    })
+            
+            # 3. Vérifier les doublons (même type à moins de 5 min d'intervalle)
+            for i, att1 in enumerate(check_ins + check_outs):
+                for att2 in (check_ins + check_outs)[i+1:]:
+                    if att1.attendance_type == att2.attendance_type:
+                        diff = (att2.timestamp - att1.timestamp).total_seconds()
+                        if 0 < diff < 300:  # Moins de 5 minutes
+                            anomalies['duplicate_checkins'].append({
+                                'type': 'Pointage en doublon',
+                                'date': date.isoformat(),
+                                'timestamp1': att1.timestamp.isoformat(),
+                                'timestamp2': att2.timestamp.isoformat(),
+                                'description': f'Deux {att1.get_attendance_type_display()} à {diff/60:.0f} min d\'intervalle'
+                            })
+        
+        # 4. Vérifier les jours manquants (jours ouvrables sans pointage)
+        from datetime import date as date_type, datetime as datetime_type
+        current = start_date
+        while current <= end_date:
+            # Lundi à vendredi
+            if current.weekday() < 5:
+                if current not in daily_records:
+                    anomalies['missing_days'].append({
+                        'type': 'Jour sans pointage',
+                        'date': current.isoformat(),
+                        'description': f'Aucun pointage le {current.strftime("%A %d/%m/%Y")}'
+                    })
+            current += timedelta(days=1)
+        
+        # Compter les anomalies
+        anomalies['total_anomalies'] = (
+            len(anomalies['unpaired_checkins']) +
+            len(anomalies['abnormal_hours']) +
+            len(anomalies['missing_days']) +
+            len(anomalies['duplicate_checkins'])
+        )
+        
+        return Response(anomalies)
+
+
+class AttendanceMonthCalendarView(APIView):
+    """
+    GET: Calendrier du mois avec résumé des jours travaillés
+    Retourne les informations pour chaque jour:
+    - check-in time
+    - check-out time
+    - total hours
+    - status (complete, incomplete, missing, etc.)
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        from datetime import date as date_type, datetime as datetime_type
+        from calendar import monthcalendar
+        import calendar as cal
+        
+        user = request.user
+        
+        # Paramètres optionnels pour année/mois
+        year = request.query_params.get('year')
+        month = request.query_params.get('month')
+        
+        today = timezone.now().date()
+        
+        if year and month:
+            try:
+                year = int(year)
+                month = int(month)
+            except (ValueError, TypeError):
+                year = today.year
+                month = today.month
+        else:
+            year = today.year
+            month = today.month
+        
+        # Récupérer tous les pointages du mois
+        import datetime as dt
+        first_day = dt.date(year, month, 1)
+        if month == 12:
+            last_day = dt.date(year + 1, 1, 1) - dt.timedelta(days=1)
+        else:
+            last_day = dt.date(year, month + 1, 1) - dt.timedelta(days=1)
+        
+        attendances = Attendance.objects.filter(
+            user=user,
+            date__gte=first_day,
+            date__lte=last_day
+        ).order_by('timestamp')
+        
+        # Construire un dictionnaire par jour
+        daily_data = {}
+        for att in attendances:
+            if att.date not in daily_data:
+                daily_data[att.date] = {
+                    'date': att.date.isoformat(),
+                    'check_in': None,
+                    'check_out': None,
+                    'hours': 0,
+                    'status': 'incomplete'
+                }
+            
+            if att.attendance_type == 'IN':  # Check-in
+                daily_data[att.date]['check_in'] = att.timestamp.isoformat()
+            elif att.attendance_type == 'OUT':  # Check-out
+                daily_data[att.date]['check_out'] = att.timestamp.isoformat()
+        
+        # Calculer les heures et le statut pour chaque jour
+        for date, data in daily_data.items():
+            if data['check_in'] and data['check_out']:
+                check_in = dt.datetime.fromisoformat(data['check_in'])
+                check_out = dt.datetime.fromisoformat(data['check_out'])
+                hours = (check_out - check_in).total_seconds() / 3600
+                data['hours'] = round(hours, 2)
+                data['status'] = 'complete'
+            elif data['check_in'] and not data['check_out']:
+                data['status'] = 'incomplete'
+            elif data['check_out'] and not data['check_in']:
+                data['status'] = 'incomplete'
+        
+        # Ajouter les jours manquants (jours ouvrables sans pointage)
+        current = first_day
+        while current <= last_day:
+            if current not in daily_data and current.weekday() < 5:  # Lundi à vendredi
+                daily_data[current] = {
+                    'date': current.isoformat(),
+                    'check_in': None,
+                    'check_out': None,
+                    'hours': 0,
+                    'status': 'missing'
+                }
+            current += dt.timedelta(days=1)
+        
+        # Construire le calendrier
+        calendar_data = []
+        month_calendar = monthcalendar(year, month)
+        
+        for week_num, week_days in enumerate(month_calendar):
+            week_data = []
+            for day_num in week_days:
+                if day_num == 0:
+                    week_data.append(None)
+                else:
+                    current_date = dt.date(year, month, day_num)
+                    day_info = daily_data.get(current_date, {
+                        'date': current_date.isoformat(),
+                        'check_in': None,
+                        'check_out': None,
+                        'hours': 0,
+                        'status': 'empty'
+                    })
+                    day_info['day'] = day_num
+                    day_info['is_weekend'] = current_date.weekday() >= 5
+                    day_info['is_today'] = current_date == today
+                    week_data.append(day_info)
+            calendar_data.append(week_data)
+        
+        # Statistiques du mois
+        total_hours = sum(d['hours'] for d in daily_data.values())
+        complete_days = sum(1 for d in daily_data.values() if d['status'] == 'complete')
+        incomplete_days = sum(1 for d in daily_data.values() if d['status'] == 'incomplete')
+        missing_days = sum(1 for d in daily_data.values() if d['status'] == 'missing')
+        
+        return Response({
+            'year': year,
+            'month': month,
+            'month_name': cal.month_name[month],
+            'calendar': calendar_data,
+            'daily_data': daily_data,
+            'statistics': {
+                'total_hours': round(total_hours, 2),
+                'complete_days': complete_days,
+                'incomplete_days': incomplete_days,
+                'missing_days': missing_days,
+                'working_days': complete_days + incomplete_days + missing_days
             }
         })

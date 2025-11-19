@@ -272,3 +272,57 @@ class TeamMembersView(APIView):
         
         serializer = TeamDetailSerializer(team)
         return Response(serializer.data)
+
+
+class MyTeamInfoView(APIView):
+    """
+    GET: Récupère les informations de l'équipe de l'utilisateur connecté
+    Retourne: équipe, manager, et co-équipiers
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        user = request.user
+        
+        # Récupérer la (les) équipe(s) de l'utilisateur
+        teams = user.teams.all()
+        
+        team_info = []
+        for team in teams:
+            team_data = {
+                'id': team.id,
+                'name': team.name,
+                'description': team.description,
+                'manager': None,
+                'members_count': team.members.count(),
+                'members': []
+            }
+            
+            # Ajouter le manager s'il existe
+            if team.manager:
+                team_data['manager'] = {
+                    'id': team.manager.id,
+                    'username': team.manager.username,
+                    'first_name': team.manager.first_name,
+                    'last_name': team.manager.last_name,
+                    'email': team.manager.email,
+                    'function': team.manager.function
+                }
+            
+            # Ajouter les co-équipiers
+            for member in team.members.all():
+                if member.id != user.id:  # Ne pas ajouter l'utilisateur lui-même
+                    team_data['members'].append({
+                        'id': member.id,
+                        'username': member.username,
+                        'first_name': member.first_name,
+                        'last_name': member.last_name,
+                        'function': member.function
+                    })
+            
+            team_info.append(team_data)
+        
+        return Response({
+            'team_count': len(teams),
+            'teams': team_info
+        })
